@@ -1,567 +1,180 @@
-script_name("AutoPiar")
-script_author("ARMOR")
-script_version("2.0")
-
-require "lib.moonloader"
-local imgui = require "imgui"
-local inicfg = require "inicfg"
+script_name('Mining BTC Helper Final Fixed')
+require("moonloader")
+local sampev = require("lib.samp.events")
 local encoding = require 'encoding'
-local ev = require 'lib.samp.events'
-
 encoding.default = 'CP1251'
-u8 = encoding.UTF8
+local u8 = encoding.UTF8
 
-local cfg = inicfg.load({
-    config = {
-        vr = "",
-        fam = "",
-        j = "",
-        s = "",
-        ad = "",
-    },
-    interface = {
-        vr_checkbox = false,
-        fam_checkbox = false,
-        j_checkbox = false,
-        s_checkbox = false,
-        ad_checkbox = false,
-        vr_slider = 1,
-        fam_slider = 1,
-        j_slider = 1,
-        s_slider = 1,
-        ad_slider = 1,
-        ad_radiobutton = 1,
-        theme_id = 0,
-    }
-}, "AutoPiar.ini")
+-- [[ РќРђРЎРўР РћР™РљР ]]
+local active = false
+local showMenu = true
+local currentStep = 1
+local currentHouse = 0
+local totalBTC = 0.0
+local maxHouses = 15
+local delayMult = 1.0
+local gpu_indexes = {1, 2, 3, 4, 7, 8, 9, 10, 13, 14, 15, 16, 19, 20, 21, 22, 25, 26, 27, 28}
+local isWaiting = false
 
-local enable = false
-local main_window_state = imgui.ImBool(false)
-
-local vr_check = imgui.ImBool(cfg.interface.vr_checkbox)
-local fam_check = imgui.ImBool(cfg.interface.fam_checkbox)
-local j_check = imgui.ImBool(cfg.interface.j_checkbox)
-local s_check = imgui.ImBool(cfg.interface.s_checkbox)
-local ad_check = imgui.ImBool(cfg.interface.ad_checkbox)
-
-local vr = imgui.ImBuffer(256)
-local fam = imgui.ImBuffer(256)
-local j = imgui.ImBuffer(256)
-local s = imgui.ImBuffer(256)
-local ad = imgui.ImBuffer(256)
-
-local vr_slider = imgui.ImInt(cfg.interface.vr_slider)
-local fam_slider = imgui.ImInt(cfg.interface.fam_slider)
-local j_slider = imgui.ImInt(cfg.interface.j_slider)
-local s_slider = imgui.ImInt(cfg.interface.s_slider)
-local ad_slider = imgui.ImInt(cfg.interface.ad_slider)
-
-local ad_radiobutton = imgui.ImInt(cfg.interface.ad_radiobutton)
-local themes_combo = imgui.ImInt(0)
-
-local delay = 0.5
-
--- Блокировка управления
-function disableControls()
-    lockPlayerControl(true)
-end
-
-function enableControls()
-    lockPlayerControl(false)
-    -- Включаем обратно отключенные клавиши  --setVirtualKeyDisabled(0x20, true)
-end
+-- РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ С€СЂРёС„С‚Р°
+font = renderCreateFont("Arial", 10, 5)
 
 function main()
-    if not isSampfuncsLoaded() or not isSampLoaded() then
-        return
-    end
-    while not isSampAvailable() do
-        wait(100)
-    end
+    while not isSampAvailable() do wait(100) end
+    sampAddChatMessage(u8:decode("{FFD700}[MiningBTC] {FFFFFF}Р’РµСЂСЃРёСЏ 12.1 РіРѕС‚РѕРІР°!"), -1)
+    sampAddChatMessage(u8:decode("{00FF00}F2 {FFFFFF}- СЃРєСЂС‹С‚СЊ РјРµРЅСЋ | {00FF00}L {FFFFFF}- РїР°СѓР·Р°/СЃС‚Р°СЂС‚ | {00FF00}/fwait [С‡] {FFFFFF}- С‚Р°Р№РјРµСЂ"), -1)
 
-    if not doesFileExist(getWorkingDirectory()..'\\config\\AutoPiar.ini') then
-        inicfg.save(cfg, 'AutoPiar.ini')
-    end
-
-    sampAddChatMessage("[AutoPiar]: {FFFFFF}Скрипт загружен, для настройки введите /ap", 0x5CBCFF)
-    sampAddChatMessage("[AutoPiar]: {FFFFFF}Отдельное спасибо: mafizik и всему разделу помощи в разделе Разработка LUA :)", 0x5CBCFF)
-
-    sampRegisterChatCommand("ap", function()
-        main_window_state.v = not main_window_state.v
-        imgui.Process = main_window_state.v
+    -- Р РµРіРёСЃС‚СЂР°С†РёСЏ РєРѕРјР°РЅРґ
+    sampRegisterChatCommand("fwait", startTimer)
+    sampRegisterChatCommand("freset", function()
+        currentStep = 1
+        currentHouse = 0
+        totalBTC = 0.0
+        sampAddChatMessage(u8:decode("{FFD700}[MiningBTC] {FFFFFF}РџСЂРѕРіСЂРµСЃСЃ СЃР±СЂРѕС€РµРЅ Рє РЅР°С‡Р°Р»Сѓ."), -1)
     end)
 
-		while true do
+    while true do
         wait(0)
-        vr.v = cfg.config.vr
-        fam.v = cfg.config.fam
-        j.v = cfg.config.j
-        s.v = cfg.config.s
-        ad.v = cfg.config.ad
-        themes_combo.v = cfg.interface.theme_id
-        styles = cfg.interface.theme_id
+        if showMenu then
+            local x, y = 10, 300 -- Р‘Р°Р·РѕРІС‹Рµ РєРѕРѕСЂРґРёРЅР°С‚С‹
+            local w, h = 360, 210 -- Р Р°Р·РјРµСЂС‹
 
-        -- Проверка состояния чекбоксов и флага
-        if enable and not vr_check.v and not fam_check.v and not j_check.v and not ad_check.v and not s_check.v then
-            sampAddChatMessage("[AutoPiar]: {FFFFFF}Произошла ошибка, были сняты все CheckBox'ы ", 0xFF0000)
-            enable = false
-        end
+            -- 1. Р­Р¤Р¤Р•РљРў РЎР’Р•Р§Р•РќРРЇ (СЂР°РјРєР° РІРѕРєСЂСѓРі)
+            renderDrawBox(x - 2, y - 2, w + 4, h + 4, 0x55FFAA00) -- Р’РЅРµС€РЅРµРµ РѕСЂР°РЅР¶РµРІРѕРµ СЃРІРµС‡РµРЅРёРµ
+            renderDrawBox(x - 1, y - 1, w + 2, h + 2, 0xFF332211) -- РўРµРјРЅР°СЏ РєР°Р№РјР°
 
-        -- Управление блокировкой при открытии/закрытии окна
-        if main_window_state.v then
-            disableControls()
-        else
-            enableControls()
-        end
+            -- 2. РћРЎРќРћР’РќРћР™ Р¤РћРќ (РўРµРјРЅС‹Р№, РїРѕС‡С‚Рё РєР°Рє РЅР° СЃРєСЂРёРЅРµ)
+            renderDrawBox(x, y, w, h, 0xEE1A1310) 
 
-    end
-end
-function piar_fam()
-    wait(1000)
-    while enable do
-        if fam_check.v then
-            sampSendChat("/fam " .. u8:decode(cfg.config.fam))
-            sampAddChatMessage("[AutoPiar]: {FFFFFF}Отправлено сообщение в /fam", 0x5CBCFF) -- Хз зачем, но пусть будет
-        end
-        wait(fam_slider.v * 1000)
-    end
-end
+            -- 3. РџРћР›РћРЎРљРђ-РђРљР¦Р•РќРў РЎР’Р•Р РҐРЈ (Р—РѕР»РѕС‚РёСЃС‚Р°СЏ Р»РёРЅРёСЏ)
+            renderDrawBox(x + 10, y + 40, w - 20, 1, 0x66FFCC00) 
 
-function piar_j()
-    wait(500)
-    while enable do
-        if j_check.v then
-            sampSendChat("/j " .. u8:decode(cfg.config.j))
-            sampAddChatMessage("[AutoPiar]: {FFFFFF}Отправлено сообщение в /j", 0x5CBCFF)
-        end
-        wait(j_slider.v * 1000)
-    end
-end
+            -- 4. РўР•РљРЎРў (Р—Р°РіРѕР»РѕРІРєРё Рё РґР°РЅРЅС‹Рµ)
+            renderFontDrawText(font, u8:decode("{FFCC00}Mining Helper v12.2 PRO"), x + 15, y + 10, 0xFFFFFFFF)
+            
+            renderFontDrawText(font, u8:decode("РЎС‚Р°С‚СѓСЃ: ") .. (active and "{00FF00}RUNNING" or "{FF4444}PAUSED"), x + 15, y + 50, 0xFFFFFFFF)
+            renderFontDrawText(font, u8:decode("Р”РѕРј: ") .. currentHouse .. "/" .. maxHouses .. u8:decode(" | РљР°СЂС‚Р°: ") .. currentStep .. "/20", x + 15, y + 75, 0xFFFFFFFF)
+            renderFontDrawText(font, u8:decode("РЎРѕР±СЂР°РЅРѕ Р·Р° СЃРµСЃСЃРёСЋ: {FFFF00}") .. string.format("%.4f BTC", totalBTC), x + 15, y + 100, 0xFFFFFFFF)
 
-function piar_s()
-    wait(1000)
-    while enable do
-        if s_check.v then
-            local message = u8:decode(cfg.config.s)
-            -- Проверка длины сообщения
-            if #message > 128 then
-                sampAddChatMessage("[AutoPiar]: {FF0000}Ошибка - Сообщение слишком длинное для /s", 0xFF0000)
-            else
-                sampSendChat("/s " .. message)
-                sampAddChatMessage("[AutoPiar]: {FFFFFF}Отправлено сообщение в /s", 0x5CBCFF)
+            -- РўРђР™РњР•Р 
+            if targetTime and not active then
+                local remaining = targetTime - os.time()
+                if remaining > 0 then
+                    local h, m, s = math.floor(remaining / 3600), math.floor((remaining % 3600) / 60), remaining % 60
+                    local timerStr = string.format("РћС‚Р»РѕР¶РµРЅРЅС‹Р№ СЃС‚Р°СЂС‚: %02d:%02d:%02d", h, m, s)
+                    renderFontDrawText(font, u8:decode("{00FF00}" .. timerStr), x + 15, y + 130, 0xFFFFFFFF)
+                else targetTime = nil end
             end
+
+            -- РќРР–РќРЇРЇ Р§РђРЎРўР¬ (РџРѕРґСЃРєР°Р·РєРё)
+            renderFontDrawText(font, u8:decode("{AAAAAA}'L' - РџР°СѓР·Р°/РЎС‚Р°СЂС‚ | /freset - РЎР±СЂРѕСЃ"), x + 15, y + 175, 0xFFFFFFFF)
+            
+            -- 5. РЇР РљРР™ РђРљР¦Р•РќРў РЎРќРР—РЈ (РЎРІРµС‡РµРЅРёРµ РєР°Рє РЅР° СЃРєСЂРёРЅРµ)
+            renderDrawBox(x + 20, y + h - 2, w - 40, 2, 0xAAFFCC00) 
         end
-        wait(s_slider.v * 1000)
+
+        if isKeyJustPressed(VK_F2) then showMenu = not showMenu end
+        if isKeyJustPressed(VK_L) then toggleMining() end
     end
 end
 
-function piar_ad()
-    wait(1500)
-    while enable do
-        if ad_check.v then
-            local message = u8:decode(cfg.config.ad)
-            sampSendChat("/ad " .. message)
-            wait(300)
-            local button = cfg.interface.ad_radiobutton == 1 and 1 or 2
-            sampSendDialogResponse(15346, 1, button, nil)
-            sampCloseCurrentDialogWithButton(1)
-            wait(500)
-            sampCloseCurrentDialogWithButton(1)
-            sampAddChatMessage("[AutoPiar]: {FFFFFF}Отправлено объявление /ad", 0x5CBCFF)
-        end
-        wait(ad_slider.v * 1000)
-    end
+function toggleMining()
+    active = not active
+    isWaiting = false
+    sampAddChatMessage(u8:decode("{FFD700}[MiningBTC] ") .. (active and "{00FF00}STARTED" or "{FF0000}STOPPED"), -1)
+    if active then sampProcessChatInput("/flashminer") end
 end
 
-function piar_vr()
-    wait(2300)
-    while enable do
-        if vr_check.v then
-            pcall(sampProcessChatInput, "/vr " .. u8:decode(cfg.config.vr))
-            sampAddChatMessage("[AutoPiar]: {FFFFFF}Отправлено сообщение в /vr", 0x5CBCFF)
-        end
-        wait(vr_slider.v * 1000)
-    end
-end
-
-function ev.onShowDialog(id, style, title, b1, b2, text)
-    if text:find("рекламой") and vr_check.v and enable then
+function startTimer(arg)
+    local hours = tonumber(arg)
+    if hours then
+        targetTime = os.time() + (hours * 3600) -- Р—Р°РїРѕРјРёРЅР°РµРј РІСЂРµРјСЏ, РєРѕРіРґР° РЅР°РґРѕ РЅР°С‡Р°С‚СЊ
         lua_thread.create(function()
-            wait(50)
-            sampSendDialogResponse(25628,1,0,"")
-            sampCloseCurrentDialogWithButton(1)
+            sampAddChatMessage(u8:decode("{FFD700}[MiningBTC] {FFFFFF}РўР°Р№РјРµСЂ Р·Р°РїСѓС‰РµРЅ РЅР° ") .. hours .. u8:decode(" С‡."), -1)
+            wait(hours * 3600 * 1000)
+            if not active then 
+                targetTime = nil
+                toggleMining() 
+            end
+        end)
+    else
+        sampAddChatMessage(u8:decode("{FF0000}[MiningBTC] {FFFFFF}РСЃРїРѕР»СЊР·СѓР№С‚Рµ: /fwait [С‡Р°СЃС‹]"), -1)
+    end
+end
+
+-- [[ Р›РћР“РРљРђ Р§РђРўРђ ]]
+function sampev.onServerMessage(color, text)
+    if not active then return end
+    
+    -- Р“Р›РЈР‘РћРљРђРЇ РћР§РРЎРўРљРђ: СѓР±РёСЂР°РµРј РІСЃРµ С†РІРµС‚Р° Рё Р»РёС€РЅРёРµ СЃРёРјРІРѕР»С‹
+    local cleanText = text:gsub('{......}', ''):lower()
+    
+    -- 1. РЎР§РРўРђР•Рњ BTC (РќРѕРІР°СЏ Р»РѕРіРёРєР° РїРѕРёСЃРєР° С‡РёСЃР»Р°)
+    -- РС‰РµРј РєРѕРЅСЃС‚СЂСѓРєС†РёСЋ "РІС‹РІРµР»Рё [С‡РёСЃР»Рѕ] BTC"
+    local btcGain = cleanText:match("РІС‹РІРµР»Рё%s+(%d+)%s+btc")
+    if btcGain then 
+        totalBTC = totalBTC + tonumber(btcGain) 
+    end
+
+    -- 2. РЎРљР Р«Р’РђР•Рњ Р¤Р›РЈР” (РћС€РёР±РєР° РїСЂРѕ 1 РєРѕРёРЅ)
+    -- Р•СЃР»Рё РІ СЃС‚СЂРѕРєРµ РµСЃС‚СЊ С…РѕС‚СЊ РЅР°РјРµРє РЅР° СЌС‚Сѓ РѕС€РёР±РєСѓ - СѓРґР°Р»СЏРµРј РµС‘ РёР· С‡Р°С‚Р°
+    if cleanText:find("РІС‹РІРѕРґРёС‚СЊ РїСЂРёР±С‹Р»СЊ РјРѕР¶РЅРѕ") or cleanText:find("РјРёРЅРёРјСѓРј 1") or cleanText:find("С†РµР»С‹РјРё С‡Р°СЃС‚СЏРјРё") then
+        if not isWaiting then
+            processNextStep() -- Р—Р°РїСѓСЃРєР°РµРј РїРµСЂРµС…РѕРґ Рє СЃР»РµРґСѓСЋС‰РµР№ РєР°СЂС‚Рµ
+        end
+        return false -- Р­РўРћ Р“РђР РђРќРўРР РћР’РђРќРќРћ РЎРљР Р«Р’РђР•Рў РЎРўР РћРљРЈ
+    end
+
+    -- 3. РџР•Р Р•РҐРћР” РџРћРЎР›Р• РЈРЎРџР•РҐРђ
+    if btcGain and not isWaiting then
+        processNextStep()
+    end
+end
+
+-- Р’СЃРїРѕРјРѕРіР°С‚РµР»СЊРЅР°СЏ С„СѓРЅРєС†РёСЏ РїРµСЂРµС…РѕРґР° (С‡С‚РѕР±С‹ РЅРµ РґСѓР±Р»РёСЂРѕРІР°С‚СЊ РєРѕРґ)
+function processNextStep()
+    lua_thread.create(function()
+        isWaiting = true
+        currentStep = currentStep + 1
+        wait(500) -- Turbo-Р·Р°РґРµСЂР¶РєР°
+        sampProcessChatInput("/flashminer") 
+        wait(800)
+        isWaiting = false
+    end)
+end
+
+-- [[ Р›РћР“РРљРђ Р”РРђР›РћР“РћР’ ]]
+function sampev.onShowDialog(id, style, title, button1, button2, text)
+    if not active then return end
+    local cleanTitle = title:gsub('{......}', '')
+
+    if cleanTitle:find(u8:decode("Р’С‹Р±РѕСЂ")) and not cleanTitle:find(u8:decode("РІРёРґРµРѕРєР°СЂС‚")) then
+        lua_thread.create(function() wait(1000) sampSendDialogResponse(id, 1, currentHouse, "") end)
+    end
+
+    if cleanTitle:find(u8:decode("РІРёРґРµРѕРєР°СЂС‚")) then
+        lua_thread.create(function()
+            wait(1200)
+            if currentStep <= #gpu_indexes then
+                sampSendDialogResponse(id, 1, gpu_indexes[currentStep], "")
+            else
+                currentHouse = currentHouse + 1
+                currentStep = 1
+                if currentHouse < maxHouses then
+                    wait(500)
+                    sampProcessChatInput("/flashminer")
+                else
+                    active = false
+                    sampAddChatMessage(u8:decode("{00FF00}[MiningBTC] Р’СЃРµ РґРѕРјР° РїСЂРѕР№РґРµРЅС‹!"), -1)
+                end
+            end
         end)
     end
-end
 
-function imgui.OnDrawFrame()
-    local style = imgui.GetStyle()
-    local clrs = style.Colors
-    local clr = imgui.Col
-    local ImVec4 = imgui.ImVec4
-    style.Alpha = 1
-    style.ChildWindowRounding = 0
-    style.WindowRounding = 0
-    style.GrabRounding = 0
-    style.GrabMinSize = 12
-    style.FrameRounding = 5
-    local triangle = 0xFF002779
-
-    if styles == 0 then
-        clrs[clr.Text] = ImVec4(1, 1, 1, 1)
-        clrs[clr.TextDisabled] = ImVec4(0.6, 0.6, 0.6, 1)
-        clrs[clr.WindowBg] = ImVec4(0, 0, 0, 1)
-        clrs[clr.ChildWindowBg] = ImVec4(0, 0, 0, 0)
-        clrs[clr.PopupBg] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.Border] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.BorderShadow] = ImVec4(0, 0, 0, 0)
-        clrs[clr.FrameBg] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.FrameBgHovered] = ImVec4(0.06, 0.37, 0.74, 1)
-        clrs[clr.FrameBgActive] = ImVec4(0.1, 0.41, 0.78, 1)
-        clrs[clr.TitleBg] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.TitleBgActive] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.TitleBgCollapsed] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.MenuBarBg] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.ScrollbarBg] = ImVec4(0.15, 0.15, 0.15, 1)
-        clrs[clr.ScrollbarGrab] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.ScrollbarGrabHovered] = ImVec4(0.06, 0.37, 0.74, 1)
-        clrs[clr.ScrollbarGrabActive] = ImVec4(0.1, 0.41, 0.78, 1)
-        clrs[clr.ComboBg] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.CheckMark] = ImVec4(1, 1, 1, 1)
-        clrs[clr.SliderGrab] = ImVec4(0.18, 0.18, 0.18, 1)
-        clrs[clr.SliderGrabActive] = ImVec4(0.26, 0.26, 0.26, 1)
-        clrs[clr.Button] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.ButtonHovered] = ImVec4(0.06, 0.37, 0.74, 1)
-        clrs[clr.ButtonActive] = ImVec4(0.1, 0.41, 0.78, 1)
-        clrs[clr.Header] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.HeaderHovered] = ImVec4(0.06, 0.37, 0.74, 1)
-        clrs[clr.HeaderActive] = ImVec4(0.1, 0.41, 0.78, 1)
-        clrs[clr.Separator] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.SeparatorHovered] = ImVec4(0.06, 0.37, 0.74, 1)
-        clrs[clr.SeparatorActive] = ImVec4(0.1, 0.41, 0.78, 1)
-        clrs[clr.ResizeGrip] = ImVec4(0.14, 0.45, 0.82, 1)
-        clrs[clr.ResizeGripHovered] = ImVec4(0.06, 0.37, 0.74, 1)
-        clrs[clr.ResizeGripActive] = ImVec4(0.1, 0.41, 0.78, 1)
-        clrs[clr.CloseButton] = ImVec4(0.2, 0.2, 0.2, 0.88)
-        clrs[clr.CloseButtonHovered] = ImVec4(0.2, 0.2, 0.2, 1)
-        clrs[clr.CloseButtonActive] = ImVec4(0.2, 0.2, 0.2, 0.61)
-        clrs[clr.PlotLines] = ImVec4(1, 1, 1, 1)
-        clrs[clr.PlotLinesHovered] = ImVec4(1, 1, 1, 1)
-        clrs[clr.PlotHistogram] = ImVec4(1, 1, 1, 1)
-        clrs[clr.PlotHistogramHovered] = ImVec4(1, 1, 1, 1)
-        clrs[clr.TextSelectedBg] = ImVec4(0, 0, 0, 0.35)
-        clrs[clr.ModalWindowDarkening] = ImVec4(0.2, 0.2, 0.2, 0.35)
-    elseif styles == 1 then
-        triangle = 0xFF007723
-        clrs[clr.Text] = ImVec4(1, 1, 1, 1)
-        clrs[clr.TextDisabled] = ImVec4(0.6, 0.6, 0.6, 1)
-        clrs[clr.WindowBg] = ImVec4(0, 0, 0, 1)
-        clrs[clr.ChildWindowBg] = ImVec4(0, 0, 0, 0)
-        clrs[clr.PopupBg] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.Border] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.BorderShadow] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.FrameBg] = ImVec4(0.53, 0.71, 0.01, 0.71)
-        clrs[clr.FrameBgHovered] = ImVec4(0.53, 0.71, 0.01, 0.59)
-        clrs[clr.FrameBgActive] = ImVec4(0.53, 0.71, 0.01, 0.39)
-        clrs[clr.TitleBg] = ImVec4(0.53, 0.71, 0.01, 0.82)
-        clrs[clr.TitleBgActive] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.TitleBgCollapsed] = ImVec4(0.53, 0.71, 0.01, 0.67)
-        clrs[clr.MenuBarBg] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.ScrollbarBg] = ImVec4(0, 0, 0, 1)
-        clrs[clr.ScrollbarGrab] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.ScrollbarGrabHovered] = ImVec4(0.53, 0.71, 0.01, 0.78)
-        clrs[clr.ScrollbarGrabActive] = ImVec4(0.53, 0.71, 0.01, 0.59)
-        clrs[clr.ComboBg] = ImVec4(0.53, 0.71, 0.01, 0.78)
-        clrs[clr.CheckMark] = ImVec4(1, 1, 1, 1)
-        clrs[clr.SliderGrab] = ImVec4(0.18, 0.18, 0.18, 1)
-        clrs[clr.SliderGrabActive] = ImVec4(0.26, 0.26, 0.26, 1)
-        clrs[clr.Button] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.ButtonHovered] = ImVec4(0.53, 0.71, 0.01, 0.78)
-        clrs[clr.ButtonActive] = ImVec4(0.53, 0.71, 0.01, 0.71)
-        clrs[clr.Header] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.HeaderHovered] = ImVec4(0.53, 0.71, 0.01, 0.78)
-        clrs[clr.HeaderActive] = ImVec4(0.53, 0.71, 0.01, 0.71)
-        clrs[clr.Separator] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.SeparatorHovered] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.SeparatorActive] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.ResizeGrip] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.ResizeGripHovered] = ImVec4(0.53, 0.71, 0.01, 0.78)
-        clrs[clr.ResizeGripActive] = ImVec4(0.53, 0.71, 0.01, 0.71)
-        clrs[clr.CloseButton] = ImVec4(0, 0, 0, 1)
-        clrs[clr.CloseButtonHovered] = ImVec4(0.29, 0.29, 0.29, 1)
-        clrs[clr.CloseButtonActive] = ImVec4(0.77, 0.77, 0.77, 0.78)
-        clrs[clr.PlotLines] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.PlotLinesHovered] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.PlotHistogram] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.PlotHistogramHovered] = ImVec4(0.53, 0.71, 0.01, 1)
-        clrs[clr.TextSelectedBg] = ImVec4(0.26, 0.26, 0.26, 0.35)
-        clrs[clr.ModalWindowDarkening] = ImVec4(0.2, 0.2, 0.2, 0.35)
-    elseif styles == 2 then
-        triangle = 0xFFD6388B
-        clrs[clr.Text] = ImVec4(1, 1, 1, 1)
-        clrs[clr.TextDisabled] = ImVec4(0.6, 0.6, 0.6, 1)
-        clrs[clr.WindowBg] = ImVec4(0, 0, 0, 1)
-        clrs[clr.ChildWindowBg] = ImVec4(0, 0, 0, 0)
-        clrs[clr.PopupBg] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.Border] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.BorderShadow] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.FrameBg] = ImVec4(0.71, 0.01, 0.38, 0.71)
-        clrs[clr.FrameBgHovered] = ImVec4(0.71, 0.01, 0.38, 0.59)
-        clrs[clr.FrameBgActive] = ImVec4(0.71, 0.01, 0.38, 0.39)
-        clrs[clr.TitleBg] = ImVec4(0.71, 0.01, 0.38, 0.82)
-        clrs[clr.TitleBgActive] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.TitleBgCollapsed] = ImVec4(0.71, 0.01, 0.38, 0.67)
-        clrs[clr.MenuBarBg] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.ScrollbarBg] = ImVec4(0, 0, 0, 1)
-        clrs[clr.ScrollbarGrab] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.ScrollbarGrabHovered] = ImVec4(0.71, 0.01, 0.38, 0.78)
-        clrs[clr.ScrollbarGrabActive] = ImVec4(0.71, 0.01, 0.38, 0.59)
-        clrs[clr.ComboBg] = ImVec4(0.71, 0.01, 0.38, 0.78)
-        clrs[clr.CheckMark] = ImVec4(1, 1, 1, 1)
-        clrs[clr.SliderGrab] = ImVec4(0.18, 0.18, 0.18, 1)
-        clrs[clr.SliderGrabActive] = ImVec4(0.26, 0.26, 0.26, 1)
-        clrs[clr.Button] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.ButtonHovered] = ImVec4(0.71, 0.01, 0.38, 0.78)
-        clrs[clr.ButtonActive] = ImVec4(0.71, 0.01, 0.38, 0.71)
-        clrs[clr.Header] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.HeaderHovered] = ImVec4(0.71, 0.01, 0.38, 0.78)
-        clrs[clr.HeaderActive] = ImVec4(0.71, 0.01, 0.38, 0.71)
-        clrs[clr.Separator] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.SeparatorHovered] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.SeparatorActive] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.ResizeGrip] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.ResizeGripHovered] = ImVec4(0.71, 0.01, 0.38, 0.78)
-        clrs[clr.ResizeGripActive] = ImVec4(0.71, 0.01, 0.38, 0.71)
-        clrs[clr.CloseButton] = ImVec4(0, 0, 0, 1)
-        clrs[clr.CloseButtonHovered] = ImVec4(0.29, 0.29, 0.29, 1)
-        clrs[clr.CloseButtonActive] = ImVec4(0.77, 0.77, 0.77, 0.78)
-        clrs[clr.PlotLines] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.PlotLinesHovered] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.PlotHistogram] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.PlotHistogramHovered] = ImVec4(0.71, 0.01, 0.38, 1)
-        clrs[clr.TextSelectedBg] = ImVec4(0.26, 0.26, 0.26, 0.35)
-        clrs[clr.ModalWindowDarkening] = ImVec4(0.2, 0.2, 0.2, 0.35)
-    elseif styles == 3 then
-        triangle = 0xFFD67200
-        clrs[clr.Text] = ImVec4(1, 1, 1, 1)
-        clrs[clr.TextDisabled] = ImVec4(0.6, 0.6, 0.6, 1)
-        clrs[clr.WindowBg] = ImVec4(0, 0, 0, 1)
-        clrs[clr.ChildWindowBg] = ImVec4(0, 0, 0, 0)
-        clrs[clr.PopupBg] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.Border] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.BorderShadow] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.FrameBg] = ImVec4(0.85, 0.59, 0, 0.71)
-        clrs[clr.FrameBgHovered] = ImVec4(0.85, 0.59, 0, 0.59)
-        clrs[clr.FrameBgActive] = ImVec4(0.85, 0.59, 0, 0.39)
-        clrs[clr.TitleBg] = ImVec4(0.85, 0.59, 0, 0.82)
-        clrs[clr.TitleBgActive] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.TitleBgCollapsed] = ImVec4(0.85, 0.59, 0, 0.67)
-        clrs[clr.MenuBarBg] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.ScrollbarBg] = ImVec4(0, 0, 0, 1)
-        clrs[clr.ScrollbarGrab] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.ScrollbarGrabHovered] = ImVec4(0.85, 0.59, 0, 0.78)
-        clrs[clr.ScrollbarGrabActive] = ImVec4(0.85, 0.59, 0, 0.59)
-        clrs[clr.ComboBg] = ImVec4(0.85, 0.59, 0, 0.78)
-        clrs[clr.CheckMark] = ImVec4(1, 1, 1, 1)
-        clrs[clr.SliderGrab] = ImVec4(0.18, 0.18, 0.18, 1)
-        clrs[clr.SliderGrabActive] = ImVec4(0.26, 0.26, 0.26, 1)
-        clrs[clr.Button] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.ButtonHovered] = ImVec4(0.85, 0.59, 0, 0.78)
-        clrs[clr.ButtonActive] = ImVec4(0.85, 0.59, 0, 0.71)
-        clrs[clr.Header] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.HeaderHovered] = ImVec4(0.85, 0.59, 0, 0.78)
-        clrs[clr.HeaderActive] = ImVec4(0.85, 0.59, 0, 0.71)
-        clrs[clr.Separator] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.SeparatorHovered] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.SeparatorActive] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.ResizeGrip] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.ResizeGripHovered] = ImVec4(0.85, 0.59, 0, 0.78)
-        clrs[clr.ResizeGripActive] = ImVec4(0.85, 0.59, 0, 0.71)
-        clrs[clr.CloseButton] = ImVec4(0, 0, 0, 1)
-        clrs[clr.CloseButtonHovered] = ImVec4(0.29, 0.29, 0.29, 1)
-        clrs[clr.CloseButtonActive] = ImVec4(0.77, 0.77, 0.77, 0.78)
-        clrs[clr.PlotLines] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.PlotLinesHovered] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.PlotHistogram] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.PlotHistogramHovered] = ImVec4(0.85, 0.59, 0, 1)
-        clrs[clr.TextSelectedBg] = ImVec4(0.26, 0.26, 0.26, 0.35)
-        clrs[clr.ModalWindowDarkening] = ImVec4(0.2, 0.2, 0.2, 0.35)
+    if cleanTitle:find(u8:decode("РЎС‚РѕР№РєР°")) then
+        lua_thread.create(function() wait(1000) sampSendDialogResponse(id, 1, 1, "") end)
     end
-
-    if not main_window_state.v then
-        imgui.Process = false
-    end
-
-    if main_window_state.v then
-        local sw, sh = getScreenResolution()
-
-        imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-        imgui.SetNextWindowSize(imgui.ImVec2(600, 475), imgui.Cond.FirstUseEver)
-        imgui.Begin(u8"Авто Пиар", main_window_state, imgui.WindowFlags.NoResize)
-
-        -- Пиар в /vr
-        imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize(u8("Пиар в /vr")).x)/2)
-        imgui.Text(u8"Пиар в /vr")
-        if imgui.Checkbox("##1", vr_check) then
-            cfg.interface.vr_checkbox = vr_check.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.SameLine(30)
-        imgui.PushItemWidth(560)
-        if imgui.InputText("##2", vr) then
-            cfg.config.vr = vr.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.PushItemWidth(582)
-        if imgui.SliderInt("##3", vr_slider, 1, 600, u8' %.0f с') then
-            cfg.interface.vr_slider = vr_slider.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.Separator()
-
-        -- Пиар в /fam
-        imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize(u8("Пиар в /fam")).x)/2)
-        imgui.Text(u8"Пиар в /fam")
-        if imgui.Checkbox("##4", fam_check) then
-            cfg.interface.fam_checkbox = fam_check.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.SameLine(30)
-        imgui.PushItemWidth(560)
-        if imgui.InputText("##5", fam) then
-            cfg.config.fam = fam.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.PushItemWidth(582)
-        if imgui.SliderInt("##6", fam_slider, 1, 600, u8'%.0f с') then
-            cfg.interface.fam_slider = fam_slider.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.Separator()
-
-        -- Пиар в /j
-        imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize(u8("Пиар в /j")).x)/2)
-        imgui.Text(u8"Пиар в /j")
-        if imgui.Checkbox("##7", j_check) then
-            cfg.interface.j_checkbox = j_check.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.SameLine(30)
-        imgui.PushItemWidth(560)
-        if imgui.InputText("##8", j) then
-            cfg.config.j = j.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.PushItemWidth(582)
-        if imgui.SliderInt("##9", j_slider, 1, 600, u8'%.0f с') then
-            cfg.interface.j_slider = j_slider.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.Separator()
-
-        -- Пиар в /s
-        imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize(u8("Пиар в /s")).x)/2)
-        imgui.Text(u8"Пиар в /s")
-        if imgui.Checkbox("##10", s_check) then
-            cfg.interface.s_checkbox = s_check.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.SameLine(30)
-        imgui.PushItemWidth(560)
-        if imgui.InputText("##11", s) then
-            cfg.config.s = s.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.PushItemWidth(582)
-        if imgui.SliderInt("##12", s_slider, 1, 600, u8'%.0f с') then
-            cfg.interface.s_slider = s_slider.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.Separator()
-
-        -- Пиар в /ad
-        imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize(u8("Пиар в /ad")).x)/2)
-        imgui.Text(u8"Пиар в /ad")
-        if imgui.Checkbox("##13", ad_check) then
-            cfg.interface.ad_checkbox = ad_check.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.SameLine(30)
-        imgui.PushItemWidth(560)
-        if imgui.InputText("##14", ad) then
-            cfg.config.ad = ad.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.PushItemWidth(582)
-        if imgui.SliderInt("##15", ad_slider, 1, 600, u8'%.0f с') then
-            cfg.interface.ad_slider = ad_slider.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        if imgui.RadioButton(u8"Обычное объявление", ad_radiobutton, 1) then
-            cfg.interface.ad_radiobutton = ad_radiobutton.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.SameLine(470)
-        if imgui.RadioButton(u8"VIP объявление", ad_radiobutton, 2) then
-            cfg.interface.ad_radiobutton = ad_radiobutton.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.Separator()
-
-        -- Темы интерфейса
-        imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize(u8"Цветовая тема окна").x)/2)
-        imgui.Text(u8"Цветовая тема окна")
-        if imgui.Combo("##16", themes_combo, {u8"Синий стиль", u8"Зеленый стиль", u8"Розовый стиль", u8"Оранжевый стиль"}) then
-            styles = themes_combo.v
-            cfg.interface.theme_id = themes_combo.v
-            inicfg.save(cfg, "AutoPiar.ini")
-        end
-        imgui.Separator()
-
-        -- Кнопка запуска авто-пиара
-        if imgui.Button(u8((enable and 'Остановить' or 'Запустить') .. ' авто-пиар'), imgui.ImVec2(582, 20))
-                -- вместо or или
-             then
-            enable = not enable
-            if enable then
-                piar_vr1 = lua_thread.create(piar_vr)
-                piar_fam2 = lua_thread.create(piar_fam)
-                piar_j3 = lua_thread.create(piar_j)
-                piar_s4 = lua_thread.create(piar_s)
-                piar_ad5 = lua_thread.create(piar_ad)
-            else
-                if piar_vr1 then piar_vr1:terminate() end
-                if piar_fam2 then piar_fam2:terminate() end
-                if piar_j3 then piar_j3:terminate() end
-                if piar_s4 then piar_s4:terminate() end
-                if piar_ad5 then piar_ad5:terminate() end
-            end
-            if not vr_check.v and not fam_check.v and not j_check.v and not ad_check.v and not s_check.v then
-                sampAddChatMessage("[AutoPiar]: {FFFFFF}Небыло выбрано ни одного варианта пиара!", triangle)
-                enable = false
-            else
-                sampAddChatMessage(enable and "[AutoPiar]: {FFFFFF}Пиар активирован!" or "[AutoPiar]: {FFFFFF}Пиар деактивирован!", triangle)
-                                -- тоже вместо or или
-            end
-        end
-        imgui.End()
+    if cleanTitle:find(u8:decode("РїСЂРёР±С‹Р»Рё")) then
+        lua_thread.create(function() wait(800) sampSendDialogResponse(id, 1, 0, "") end)
     end
 end
-
-function ev.onServerMessage(color, text)
-    if text:find("%[%u+%] {%x+}[A-z0-9_]+%[" .. select(2, sampGetPlayerIdByCharHandle(PLAYER_PED)) .. "%]:.+") then
-        finished = true
-    end
-    if text:find("^%[Ошибка%].*После последнего сообщения в этом чате нужно подождать") then
-        lua_thread.create(function()
-            wait(delay * 1000)
-            sampSendChat("/vr " .. message)
-            try = try + 1
-        end)
-        return false
-    end
-    if text:find("^Вы заглушены") or text:find("Для возможности повторной отправки сообщения в этот чат") then
-        finished = true
-    end
-        --тоже так же
-	end
