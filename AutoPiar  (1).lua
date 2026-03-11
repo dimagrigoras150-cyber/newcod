@@ -102,32 +102,38 @@ function startTimer(arg)
     end
 end
 
--- [[ ЛОГИКА ЧАТА ]]
+-- [[ ЛОГИКА ЧАТА (ВЕРСИЯ 12.6 - ФИНАЛЬНАЯ ПРАВКА) ]]
 function sampev.onServerMessage(color, text)
-    if not active then return end
+    if not active or isWaiting then return end
     
-    -- ГЛУБОКАЯ ОЧИСТКА: убираем все цвета и лишние символы
+    -- Очищаем текст от цветов {FFFFFF} и переводим в нижний регистр
     local cleanText = text:gsub('{......}', ''):lower()
     
-    -- 1. СЧИТАЕМ BTC (Новая логика поиска числа)
-    -- Ищем конструкцию "вывели [число] BTC"
-    local btcGain = cleanText:match("вывели%s+(%d+)%s+btc")
-    if btcGain then 
-        totalBTC = totalBTC + tonumber(btcGain) 
-    end
-
-    -- 2. СКРЫВАЕМ ФЛУД (Ошибка про 1 коин)
-    -- Если в строке есть хоть намек на эту ошибку - удаляем её из чата
-    if cleanText:find("выводить прибыль можно") or cleanText:find("минимум 1") or cleanText:find("целыми частями") then
-        if not isWaiting then
-            processNextStep() -- Запускаем переход к следующей карте
+    -- 1. СЧИТАЕМ ПРИБЫЛЬ (Ультра-захват)
+    -- Ищем ЛЮБОЕ число, за которым следует пробел и буквы btc
+    if cleanText:find("вывели") then
+        local btcGain = cleanText:match("(%d+)%s+btc")
+        if btcGain then 
+            totalBTC = totalBTC + tonumber(btcGain) 
         end
-        return false -- ЭТО ГАРАНТИРОВАННО СКРЫВАЕТ СТРОКУ
     end
 
-    -- 3. ПЕРЕХОД ПОСЛЕ УСПЕХА
-    if btcGain and not isWaiting then
-        processNextStep()
+    -- 2. ЛОГИКА ПЕРЕХОДА (Если предмет добавлен ИЛИ если ошибка "минимум 1")
+    -- Используем u8:decode для стабильного поиска в кодировке сервера
+    if cleanText:find(u8:decode("добавлен предмет")) or cleanText:find(u8:decode("минимум 1")) or cleanText:find(u8:decode("целыми частями")) then
+        lua_thread.create(function()
+            isWaiting = true
+            currentStep = currentStep + 1
+            wait(750) 
+            if active then sampProcessChatInput("/flashminer") end
+            wait(1200)
+            isWaiting = false
+        end)
+        
+        -- СКРЫВАЕМ ФЛУД (Красные сообщения об ошибках)
+        if cleanText:find(u8:decode("минимум 1")) or cleanText:find(u8:decode("целыми частями")) then 
+            return false 
+        end
     end
 end
 
