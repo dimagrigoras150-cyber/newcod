@@ -102,35 +102,37 @@ function startTimer(arg)
     end
 end
 
--- [[ ЛОГИКА ЧАТА (ВЕРСИЯ 12.6 - ФИНАЛЬНАЯ ПРАВКА) ]]
+-- [[ ЛОГИКА ЧАТА (ВЕРСИЯ 12.8 - УЛЬТРА-ФИКС СЧЕТЧИКА) ]]
 function sampev.onServerMessage(color, text)
     if not active or isWaiting then return end
     
-    -- Очищаем текст от цветов {FFFFFF} и переводим в нижний регистр
+    -- ОЧИСТКА: убираем цвета {ffffff} и переводим в нижний регистр
     local cleanText = text:gsub('{......}', ''):lower()
     
-    -- 1. СЧИТАЕМ ПРИБЫЛЬ (Ультра-захват)
-    -- Ищем ЛЮБОЕ число, за которым следует пробел и буквы btc
-    if cleanText:find("вывели") then
-        local btcGain = cleanText:match("(%d+)%s+btc")
+    -- 1. СЧИТАЕМ ПРИБЫЛЬ
+    -- Мы ищем слово "вывели", пропускаем всё лишнее и забираем ПЕРВОЕ число (даже если оно дробное)
+    if cleanText:find(u8:decode("вывели")) then
+        local btcGain = cleanText:match("вывели%s+(%d+%.?%d*)")
         if btcGain then 
             totalBTC = totalBTC + tonumber(btcGain) 
+            -- sampAddChatMessage("{00FF00}[Debug] Считал: " .. btcGain, -1) -- Раскомментируй для проверки
         end
     end
 
-    -- 2. ЛОГИКА ПЕРЕХОДА (Если предмет добавлен ИЛИ если ошибка "минимум 1")
-    -- Используем u8:decode для стабильного поиска в кодировке сервера
+    -- 2. ЛОГИКА ПЕРЕХОДА И СКРЫТИЕ ФЛУДА
     if cleanText:find(u8:decode("добавлен предмет")) or cleanText:find(u8:decode("минимум 1")) or cleanText:find(u8:decode("целыми частями")) then
         lua_thread.create(function()
-            isWaiting = true
-            currentStep = currentStep + 1
-            wait(750) 
-            if active then sampProcessChatInput("/flashminer") end
-            wait(1200)
-            isWaiting = false
+            if not isWaiting then
+                isWaiting = true
+                currentStep = currentStep + 1
+                wait(700) -- Пауза для сервера
+                if active then sampProcessChatInput("/flashminer") end
+                wait(1200)
+                isWaiting = false
+            end
         end)
         
-        -- СКРЫВАЕМ ФЛУД (Красные сообщения об ошибках)
+        -- Скрываем красные сообщения об ошибках
         if cleanText:find(u8:decode("минимум 1")) or cleanText:find(u8:decode("целыми частями")) then 
             return false 
         end
